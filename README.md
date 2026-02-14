@@ -17,7 +17,7 @@ Modern, real-time vehicle tracking dashboard built with React, Vite, and Tailwin
 
 ### Prerequisites
 - Node.js 20.18.0 or higher
-- Backend API running on `http://localhost:8080`
+- Backend API running on `http://localhost:3000`
 
 ### Installation
 
@@ -64,13 +64,13 @@ public/
 Update the API base URL in `src/services/api.js`:
 
 ```javascript
-const API_BASE_URL = 'http://localhost:8080/api/v1';
+const API_BASE_URL = 'http://localhost:3000/api';
 ```
 
 ## 📝 Available Pages
 
 - `/login` - Sign in page
-- `/register` - Create new account (User/Admin)
+- `/register` - Create new account (Admin)
 - `/` - Dashboard (Admin Only)
 - `/vehicles` - Vehicle management (Admin Only)
 - `/map` - Real-time map view (Admin Only)
