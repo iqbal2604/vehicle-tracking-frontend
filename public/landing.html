@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Vehicle Tracking</title>
+
+<link rel="stylesheet"
+ href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<style>
+body { margin:0 }
+#map { width:100vw; height:100vh }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+<button onclick="followVehicleId = null"
+style="position:absolute;top:10px;right:10px;z-index:999">
+Stop Follow
+</button>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+
+/* ===================== */
+/* Marker Animation */
+/* ===================== */
+
+function animateMarker(marker, from, to, duration = 500) {
+ const start = performance.now();
+
+ function animate(time){
+  const progress = Math.min((time - start)/duration,1);
+
+  const lat = from.lat + (to.lat-from.lat)*progress;
+  const lng = from.lng + (to.lng-from.lng)*progress;
+
+  marker.setLatLng([lat,lng]);
+
+  if(progress < 1){
+   requestAnimationFrame(animate);
+  }
+ }
+
+ requestAnimationFrame(animate);
+}
+
+/* ===================== */
+/* MAP INIT */
+/* ===================== */
+
+const map = L.map('map').setView([-6.2,106.81],13);
+
+L.tileLayer(
+ 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
+).addTo(map);
+
+
+/* ===================== */
+/* GLOBAL STATE */
+/* ===================== */
+
+const markers = {};
+const vehicleLastSeen = {};
+const vehicleTrails = {};
+
+let followVehicleId = null;
+let historyLine = null;
+
+// Get token from localStorage if available, otherwise use hardcoded/prompt
+let TOKEN = localStorage.getItem('token');
+if (!TOKEN) {
+    // Fallback for demo if no login
+    console.warn("No token found in localStorage. Redirecting to login...");
+    window.location.href = '/login';
+}
+
+/* ===================== */
+/* HISTORY */
+/* ===================== */
+
+async function loadHistory(vehicleId){
+
+ if(historyLine){
+  map.removeLayer(historyLine);
+ }
+
+ const res = await fetch(
+  `http://localhost:8080/api/v1/locations/vehicle/${vehicleId}`,
+  {
+   headers:{
+    Authorization:`Bearer ${TOKEN}`
+   }
+  }
+ );
+
+ const json = await res.json();
+ 
+ if(!json.data) return;
+
+ const points = json.data.map(
+  l => [l.latitude,l.longitude]
+ );
+
+ historyLine = L.polyline(points,{
+  color:'blue',
+  weight:3,
+  dashArray:'8 6'
+ }).addTo(map);
+
+ map.fitBounds(historyLine.getBounds());
+}
+
+function handleVehicleUpdate(data) {
+  const vid = data.vehicle_id;
+  const latlng = L.latLng(data.latitude, data.longitude);
+
+  /* update last seen */
+  vehicleLastSeen[vid] = Date.now();
+
+  /* CREATE MARKER */
+  if (!markers[vid]) {
+    markers[vid] = L.marker(latlng).addTo(map);
+    markers[vid]._lastLatLng = latlng;
+
+    markers[vid].on("click", () => {
+      followVehicleId = vid;
+      loadHistory(vid);
+    });
+  }
+  /* UPDATE MARKER */
+  else {
+    animateMarker(
+      markers[vid],
+      markers[vid]._lastLatLng,
+      latlng
+    );
+
+    markers[vid]._lastLatLng = latlng;
+  }
+
+  /* UPDATE TRAIL */
+  if (!vehicleTrails[vid]) {
+    vehicleTrails[vid] = [];
+  }
+  vehicleTrails[vid].push([data.latitude, data.longitude]);
+  if (vehicleTrails[vid].length > 1) {
+    if (!markers[vid]._trail) {
+      markers[vid]._trail = L.polyline(vehicleTrails[vid], {color: 'blue', weight: 2, dashArray: '5 5'}).addTo(map);
+    } else {
+      markers[vid]._trail.setLatLngs(vehicleTrails[vid]);
+    }
+  }
+
+  /* UPDATE POPUP */
+  updatePopup(vid);
+
+  /* AUTO FOLLOW */
+  if (followVehicleId === vid) {
+    map.panTo(latlng, { animate: true });
+  }
+}
+
+/* ===================== */
+/* WEBSOCKET */
+/* ===================== */
+
+const ws = new WebSocket(
+ `ws://localhost:8080/ws?token=${TOKEN}`
+);
+
+ws.onopen = () => console.log("WS Connected");
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  handleVehicleUpdate(data);
+};
+
+
+/* ===================== */
+/* POPUP STATUS */
+/* ===================== */
+
+function updatePopup(vid){
+
+ const last = vehicleLastSeen[vid];
+ const diff = (Date.now()-last)/1000;
+
+ const status =
+  diff <= 30 ? "🟢 Online" : "🔴 Offline";
+
+ markers[vid].bindPopup(
+  `Vehicle ${vid}<br>Status: ${status}`
+ );
+}
+
+
+/* ===================== */
+/* ONLINE / OFFLINE CHECK */
+/* ===================== */
+
+setInterval(()=>{
+
+ Object.keys(markers).forEach(vid=>{
+
+  updatePopup(vid);
+
+  const last = vehicleLastSeen[vid] || 0;
+  const diff = (Date.now()-last)/1000;
+
+  /* marker opacity */
+  if(diff > 30){
+   markers[vid].setOpacity(0.3);
+  } else {
+   markers[vid].setOpacity(1);
+  }
+
+ });
+
+},5000);
+
+</script>
+</body>
+</html>
