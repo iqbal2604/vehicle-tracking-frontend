@@ -9,22 +9,37 @@ const Logs = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [filterType, setFilterType] = useState('all');
 
+    // Pagination state
+    const [currentPage, setCurrentPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
+    const [totalLogs, setTotalLogs] = useState(0);
+    const [pageSize] = useState(10);
+
     useEffect(() => {
-        fetchLogs();
+        fetchLogs(currentPage);
         // Auto refresh every 15 seconds
-        const interval = setInterval(fetchLogs, 15000);
+        const interval = setInterval(() => fetchLogs(currentPage), 15000);
         return () => clearInterval(interval);
-    }, []);
+    }, [currentPage]);
 
     useEffect(() => {
         filterLogsData();
     }, [searchTerm, filterType, logs]);
 
-    const fetchLogs = async () => {
+    const fetchLogs = async (page) => {
         try {
-            const response = await logsAPI.getAll();
-            // Backend returns { logs: [...] }
-            const rawLogs = response.data.logs || response.data.data || [];
+            const response = await logsAPI.getAll({
+                page: page,
+                limit: pageSize
+            });
+
+            // Backend returns { logs: [...], totalCount: X, totalPages: Y, currentPage: Z }
+            const rawLogs = response.data.logs || [];
+            const meta = {
+                totalCount: response.data.totalCount || 0,
+                totalPages: response.data.totalPages || 1,
+                currentPage: response.data.currentPage || 1
+            };
 
             // Map backend fields to frontend expectations
             const data = rawLogs.map(log => ({
@@ -38,10 +53,19 @@ const Logs = () => {
 
             setLogs(data);
             setFilteredLogs(data);
+            setTotalLogs(meta.totalCount);
+            setTotalPages(meta.totalPages);
             setLoading(false);
         } catch (error) {
             console.error('Error fetching logs:', error);
             setLoading(false);
+        }
+    };
+
+    const handlePageChange = (newPage) => {
+        if (newPage >= 1 && newPage <= totalPages) {
+            setCurrentPage(newPage);
+            setLoading(true);
         }
     };
 
@@ -75,7 +99,7 @@ const Logs = () => {
         return colors[type] || colors.system;
     };
 
-    if (loading) {
+    if (loading && logs.length === 0) {
         return (
             <div className="flex items-center justify-center min-h-screen">
                 <div className="text-center">
@@ -102,7 +126,7 @@ const Logs = () => {
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5" />
                         <input
                             type="text"
-                            placeholder="Search logs..."
+                            placeholder="Search logs in current page..."
                             className="input w-full pl-10"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
@@ -126,8 +150,13 @@ const Logs = () => {
                 </div>
 
                 {/* Results Count */}
-                <div className="mt-4 text-sm text-slate-400">
-                    Showing {filteredLogs.length} of {logs.length} logs
+                <div className="mt-4 flex justify-between items-center text-sm text-slate-400">
+                    <div>
+                        Showing {filteredLogs.length} logs in current page
+                    </div>
+                    <div>
+                        Total {totalLogs} logs across all pages
+                    </div>
                 </div>
             </div>
 
@@ -136,10 +165,10 @@ const Logs = () => {
                 <div className="card p-12 text-center">
                     <FileText className="w-16 h-16 text-slate-600 mx-auto mb-4" />
                     <p className="text-slate-400 text-lg">No logs found</p>
-                    <p className="text-slate-500 text-sm mt-2">Try adjusting your filters</p>
+                    <p className="text-slate-500 text-sm mt-2">Try adjusting your filters or search current page</p>
                 </div>
             ) : (
-                <div className="space-y-3">
+                <div className="space-y-3 mb-8">
                     {filteredLogs.map((log, index) => (
                         <div key={log.id || index} className="card p-4 animate-slide-up hover:scale-[1.01]">
                             <div className="flex items-start gap-4">
@@ -180,6 +209,59 @@ const Logs = () => {
                             </div>
                         </div>
                     ))}
+                </div>
+            )}
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-2 py-4 mt-8">
+                    <button
+                        onClick={() => handlePageChange(currentPage - 1)}
+                        disabled={currentPage === 1 || loading}
+                        className="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                    >
+                        Previous
+                    </button>
+
+                    <div className="flex items-center gap-1">
+                        {[...Array(totalPages)].map((_, i) => {
+                            const pageNum = i + 1;
+                            // Basic pagination logic to show only few page numbers
+                            if (
+                                pageNum === 1 ||
+                                pageNum === totalPages ||
+                                (pageNum >= currentPage - 1 && pageNum <= currentPage + 1)
+                            ) {
+                                return (
+                                    <button
+                                        key={pageNum}
+                                        onClick={() => handlePageChange(pageNum)}
+                                        disabled={loading}
+                                        className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all ${currentPage === pageNum
+                                                ? 'bg-primary-500 text-white font-bold'
+                                                : 'border border-slate-700 bg-slate-800 text-slate-400 hover:bg-slate-700'
+                                            }`}
+                                    >
+                                        {pageNum}
+                                    </button>
+                                );
+                            } else if (
+                                pageNum === currentPage - 2 ||
+                                pageNum === currentPage + 2
+                            ) {
+                                return <span key={pageNum} className="text-slate-600 mx-1">...</span>;
+                            }
+                            return null;
+                        })}
+                    </div>
+
+                    <button
+                        onClick={() => handlePageChange(currentPage + 1)}
+                        disabled={currentPage === totalPages || loading}
+                        className="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                    >
+                        Next
+                    </button>
                 </div>
             )}
         </div>
