@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:3000/api';
+const API_BASE_URL = 'https://literate-rotary-phone-p9rxjj5rvj43r69q-3000.app.github.dev/api';
 
 const api = axios.create({
     baseURL: API_BASE_URL,
