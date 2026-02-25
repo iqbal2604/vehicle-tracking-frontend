@@ -123,11 +123,11 @@ const Geofences = () => {
                         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                         <MapEvents />
 
-                        {geofences.map(gf => (
+                        {geofences.filter(gf => gf.latitude && gf.longitude).map(gf => (
                             <Circle
                                 key={gf.id}
                                 center={[gf.latitude, gf.longitude]}
-                                radius={gf.radius}
+                                radius={gf.radius || 100}
                                 pathOptions={{
                                     color: gf.type === 'safe_zone' ? '#10b981' : '#ef4444',
                                     fillColor: gf.type === 'safe_zone' ? '#10b981' : '#ef4444',
@@ -142,7 +142,7 @@ const Geofences = () => {
                         ))}
 
                         {/* Render Active Drivers */}
-                        {vehicles.map(v => (
+                        {vehicles.filter(v => v.last_location?.latitude && v.last_location?.longitude).map(v => (
                             <Marker
                                 key={`v-${v.id}`}
                                 position={[v.last_location.latitude, v.last_location.longitude]}

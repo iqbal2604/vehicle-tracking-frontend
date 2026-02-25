@@ -54,7 +54,7 @@ const createCustomIcon = (status) => {
 const ChangeView = ({ center, zoom }) => {
     const map = useMap();
     useEffect(() => {
-        if (center) {
+        if (center && typeof center[0] === 'number' && typeof center[1] === 'number') {
             map.flyTo(center, zoom, {
                 duration: 1.5,
                 easeLinearity: 0.25
@@ -264,14 +264,15 @@ const MapView = () => {
                             <ChangeView center={mapCenter} zoom={zoom} />
                             <TileLayer
                                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                             />
 
-                            {/* Render Geofences */}
-                            {geofences.map(gf => (
+                            {/* Render Geofences with safety check */}
+                            {geofences.filter(gf => gf.latitude && gf.longitude).map(gf => (
                                 <Circle
                                     key={`gf-${gf.id}`}
                                     center={[gf.latitude, gf.longitude]}
-                                    radius={gf.radius}
+                                    radius={gf.radius || 100}
                                     pathOptions={{
                                         color: gf.type === 'safe_zone' ? '#10b981' : '#ef4444',
                                         fillColor: gf.type === 'safe_zone' ? '#10b981' : '#ef4444',
