@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
-import { vehicleAPI, locationAPI } from '../services/api';
+import { MapContainer, TileLayer, Marker, Popup, useMap, Circle } from 'react-leaflet';
+import { vehicleAPI, locationAPI, geofenceAPI } from '../services/api';
 import { Navigation, MapPin as MapPinIcon } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
@@ -71,6 +71,7 @@ const MapView = () => {
     const passedUserName = location.state?.userName;
 
     const [vehicles, setVehicles] = useState([]);
+    const [geofences, setGeofences] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedVehicle, setSelectedVehicle] = useState(null);
     const [mapCenter, setMapCenter] = useState([-6.2088, 106.8456]); // Jakarta default
@@ -78,9 +79,19 @@ const MapView = () => {
 
     useEffect(() => {
         fetchVehicles();
+        fetchGeofences();
         const interval = setInterval(fetchVehicles, 5000); // Update every 5 seconds
         return () => clearInterval(interval);
     }, []);
+
+    const fetchGeofences = async () => {
+        try {
+            const res = await geofenceAPI.getAll();
+            setGeofences(Array.isArray(res.data) ? res.data : []);
+        } catch (err) {
+            console.error('Error fetching geofences:', err);
+        }
+    };
 
     const fetchVehicles = async () => {
         try {
@@ -253,8 +264,23 @@ const MapView = () => {
                             <ChangeView center={mapCenter} zoom={zoom} />
                             <TileLayer
                                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                             />
+
+                            {/* Render Geofences */}
+                            {geofences.map(gf => (
+                                <Circle
+                                    key={`gf-${gf.id}`}
+                                    center={[gf.latitude, gf.longitude]}
+                                    radius={gf.radius}
+                                    pathOptions={{
+                                        color: gf.type === 'safe_zone' ? '#10b981' : '#ef4444',
+                                        fillColor: gf.type === 'safe_zone' ? '#10b981' : '#ef4444',
+                                        fillOpacity: 0.1,
+                                        weight: 1,
+                                        dashArray: '5, 10'
+                                    }}
+                                />
+                            ))}
 
                             {vehicles.map((vehicle) => (
                                 <Marker

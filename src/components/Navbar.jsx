@@ -13,6 +13,7 @@ const Navbar = () => {
     const navItems = [
         { path: '/', label: 'Dashboard', icon: Activity },
         { path: '/vehicles', label: 'Drivers', icon: List },
+        { path: '/geofences', label: 'Geofences', icon: MapPin },
         { path: '/logs', label: 'Logs', icon: FileText },
     ];
 

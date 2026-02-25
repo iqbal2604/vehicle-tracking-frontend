@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'https://literate-rotary-phone-p9rxjj5rvj43r69q-3000.app.github.dev/api';
+const API_BASE_URL = 'http://localhost:3000/api';
 
 const api = axios.create({
     baseURL: API_BASE_URL,
@@ -53,6 +53,13 @@ export const locationAPI = {
 export const logsAPI = {
     getAll: (params) => api.get('/logs', { params }),
     getByVehicleId: (vehicleId, params) => api.get(`/logs/vehicle/${vehicleId}`, { params }),
+};
+
+// Geofence API
+export const geofenceAPI = {
+    getAll: () => api.get('/gps/geofences'),
+    create: (data) => api.post('/gps/geofences', data),
+    delete: (id) => api.delete(`/gps/geofences/${id}`),
 };
 
 export default api;

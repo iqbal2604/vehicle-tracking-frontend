@@ -7,6 +7,7 @@ import MapView from './pages/MapView';
 import Logs from './pages/Logs';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import Geofences from './pages/Geofences';
 import ProtectedRoute from './components/ProtectedRoute';
 import { AuthProvider } from './context/AuthContext';
 
@@ -50,6 +51,12 @@ function App() {
                 <>
                   <Navbar />
                   <Logs />
+                </>
+              } />
+              <Route path="/geofences" element={
+                <>
+                  <Navbar />
+                  <Geofences />
                 </>
               } />
             </Route>
