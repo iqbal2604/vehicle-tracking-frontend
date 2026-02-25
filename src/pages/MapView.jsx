@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { MapContainer, TileLayer, Marker, Popup, useMap, Circle } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap, Circle, Polyline } from 'react-leaflet';
 import { vehicleAPI, locationAPI, geofenceAPI } from '../services/api';
-import { Navigation, MapPin as MapPinIcon } from 'lucide-react';
+import { Navigation, MapPin as MapPinIcon, Calendar, Clock, Play, Pause, Square, ChevronRight, ChevronLeft, History } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
@@ -51,16 +51,50 @@ const createCustomIcon = (status) => {
 };
 
 // Component to handle map center and zoom changes
-const ChangeView = ({ center, zoom }) => {
+const ChangeView = ({ center, zoom, animate = true }) => {
     const map = useMap();
     useEffect(() => {
         if (center && typeof center[0] === 'number' && typeof center[1] === 'number') {
-            map.flyTo(center, zoom, {
-                duration: 1.5,
-                easeLinearity: 0.25
-            });
+            // Only fly/pan if the values are actually different from current map state
+            const currentCenter = map.getCenter();
+            const currentZoom = map.getZoom();
+
+            const isCenterDifferent = Math.abs(currentCenter.lat - center[0]) > 0.0001 ||
+                Math.abs(currentCenter.lng - center[1]) > 0.0001;
+            const isZoomDifferent = currentZoom !== zoom;
+
+            if (isCenterDifferent || (animate && isZoomDifferent)) {
+                if (animate) {
+                    map.flyTo(center, zoom, {
+                        duration: 1,
+                        easeLinearity: 0.25
+                    });
+                } else {
+                    map.panTo(center, { animate: true, duration: 0.5 });
+                }
+            }
         }
-    }, [center, zoom, map]);
+    }, [center[0], center[1], zoom, map, animate]); // Use specific coords to avoid ref issues
+    return null;
+};
+
+// Component to Sync Map Zoom with State
+const MapEvents = ({ setZoom, setFollowing }) => {
+    const map = useMap();
+    useEffect(() => {
+        const handleZoom = () => {
+            setZoom(map.getZoom());
+        };
+        const handleDrag = () => {
+            setFollowing(false); // Stop following when user drags map
+        };
+        map.on('zoomend', handleZoom);
+        map.on('dragstart', handleDrag);
+        return () => {
+            map.off('zoomend', handleZoom);
+            map.off('dragstart', handleDrag);
+        };
+    }, [map, setZoom, setFollowing]);
     return null;
 };
 
@@ -72,10 +106,23 @@ const MapView = () => {
 
     const [vehicles, setVehicles] = useState([]);
     const [geofences, setGeofences] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const [initialLoading, setInitialLoading] = useState(true);
+    const [fetchingHistory, setFetchingHistory] = useState(false);
     const [selectedVehicle, setSelectedVehicle] = useState(null);
     const [mapCenter, setMapCenter] = useState([-6.2088, 106.8456]); // Jakarta default
     const [zoom, setZoom] = useState(13);
+    const [following, setFollowing] = useState(true); // New state to track if we should follow the vehicle
+
+    // History Replay States
+    const [historyMode, setHistoryMode] = useState(false);
+    const [historyData, setHistoryData] = useState([]);
+    const [replaying, setReplaying] = useState(false);
+    const [replayIndex, setReplayIndex] = useState(0);
+    const [playbackSpeed, setPlaybackSpeed] = useState(500); // ms per point
+    const [dateRange, setDateRange] = useState({
+        start: new Date(new Date().setHours(0, 0, 0, 0)).toISOString().slice(0, 16),
+        end: new Date().toISOString().slice(0, 16)
+    });
 
     useEffect(() => {
         fetchVehicles();
@@ -146,28 +193,37 @@ const MapView = () => {
                     centerVehicle = validVehicles[0];
                 }
 
-                if (centerVehicle) {
-                    setMapCenter([
-                        centerVehicle.last_location.latitude,
-                        centerVehicle.last_location.longitude
-                    ]);
-                    setZoom(15); // Zoom in closer when a vehicle is selected
+                if (centerVehicle && !historyMode) {
+                    // Only set center if following is true OR it's the very first load
+                    if (following || initialLoading) {
+                        setMapCenter([
+                            centerVehicle.last_location.latitude,
+                            centerVehicle.last_location.longitude
+                        ]);
+                        if (initialLoading) setZoom(15);
+                    }
+
                     if (passedVehicleId && !selectedVehicle) {
                         setSelectedVehicle(centerVehicle);
                     }
                 }
             }
-
-            setLoading(false);
         } catch (error) {
             console.error('Error fetching vehicles:', error);
-            setLoading(false);
+        } finally {
+            setInitialLoading(false);
         }
     };
 
     const handleVehicleSelect = (vehicle) => {
+        if (historyMode) {
+            // If in history mode, just select but don't reset history until explicitly requested
+            setSelectedVehicle(vehicle);
+            return;
+        }
         setSelectedVehicle(vehicle);
         if (vehicle.last_location) {
+            setFollowing(true); // Re-enable following when manually selected
             setMapCenter([
                 vehicle.last_location.latitude,
                 vehicle.last_location.longitude
@@ -176,7 +232,59 @@ const MapView = () => {
         }
     };
 
-    if (loading) {
+    const fetchHistory = async () => {
+        if (!selectedVehicle) {
+            alert("Pilih kendaraan terlebih dahulu");
+            return;
+        }
+
+        setFetchingHistory(true);
+        try {
+            // Format start and end for backend (YYYY-MM-DD HH:mm:ss)
+            const start = dateRange.start.replace('T', ' ') + ':00';
+            const end = dateRange.end.replace('T', ' ') + ':00';
+
+            const res = await locationAPI.getHistory(selectedVehicle.id, start, end);
+            const data = res.data?.locations || [];
+
+            if (data.length === 0) {
+                alert("Tidak ada data history untuk rentang waktu ini");
+                setHistoryData([]);
+            } else {
+                setHistoryData(data);
+                // Center map to first point of history
+                setMapCenter([data[0].latitude, data[0].longitude]);
+                setZoom(15);
+            }
+        } catch (err) {
+            console.error("Error fetching history:", err);
+            alert("Gagal mengambil data history");
+        } finally {
+            setFetchingHistory(false);
+        }
+    };
+
+    // Replay logic
+    useEffect(() => {
+        let interval;
+        if (replaying && historyData.length > 0 && replayIndex < historyData.length - 1) {
+            interval = setInterval(() => {
+                setReplayIndex(prev => prev + 1);
+            }, playbackSpeed);
+        } else if (replayIndex >= historyData.length - 1) {
+            setReplaying(false);
+        }
+        return () => clearInterval(interval);
+    }, [replaying, replayIndex, historyData, playbackSpeed]);
+
+    // Update map center when replaying
+    useEffect(() => {
+        if (replaying && historyData[replayIndex]) {
+            setMapCenter([historyData[replayIndex].latitude, historyData[replayIndex].longitude]);
+        }
+    }, [replayIndex, replaying]);
+
+    if (initialLoading) {
         return (
             <div className="flex items-center justify-center min-h-screen">
                 <div className="text-center">
@@ -197,6 +305,22 @@ const MapView = () => {
                     </h1>
                     <p className="text-slate-400 text-sm">Real-time tracking of vehicles</p>
                 </div>
+
+                <div className="flex gap-2">
+                    <button
+                        onClick={() => {
+                            setHistoryMode(!historyMode);
+                            if (historyMode) {
+                                setHistoryData([]);
+                                setReplaying(false);
+                            }
+                        }}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold transition-all ${historyMode ? 'bg-primary-500 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+                    >
+                        <History className="w-4 h-4" />
+                        {historyMode ? 'Live Mode' : 'History Replay'}
+                    </button>
+                </div>
             </div>
 
             <div className="flex-1 flex">
@@ -205,8 +329,41 @@ const MapView = () => {
                     <div className="p-4">
                         <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
                             <Navigation className="w-5 h-5 text-primary-400" />
-                            Active Vehicles ({vehicles.length})
+                            {historyMode ? 'Select Vehicle' : `Active Vehicles (${vehicles.length})`}
                         </h2>
+
+                        {historyMode && (
+                            <div className="mb-6 p-4 bg-slate-800/50 rounded-xl border border-white/5 space-y-4">
+                                <h3 className="text-sm font-bold text-primary-400 uppercase tracking-wider flex items-center gap-2">
+                                    <Calendar className="w-4 h-4" /> Time Filter
+                                </h3>
+                                <div>
+                                    <label className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Start Time</label>
+                                    <input
+                                        type="datetime-local"
+                                        className="input w-full text-xs text-white bg-slate-900 border-white/10"
+                                        value={dateRange.start}
+                                        onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-slate-500 uppercase font-bold block mb-1">End Time</label>
+                                    <input
+                                        type="datetime-local"
+                                        className="input w-full text-xs text-white bg-slate-900 border-white/10"
+                                        value={dateRange.end}
+                                        onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+                                    />
+                                </div>
+                                <button
+                                    onClick={fetchHistory}
+                                    className="btn btn-primary w-full py-2 text-sm flex items-center justify-center gap-2"
+                                    disabled={!selectedVehicle}
+                                >
+                                    <History className="w-4 h-4" /> Get History
+                                </button>
+                            </div>
+                        )}
 
                         <div className="space-y-3">
                             {vehicles.length === 0 ? (
@@ -252,8 +409,18 @@ const MapView = () => {
                     </div>
                 </div>
 
-                {/* Map */}
+                {/* Map Area */}
                 <div className="flex-1 relative">
+                    {/* Fetching History Loading Overlay */}
+                    {fetchingHistory && (
+                        <div className="absolute inset-0 z-[2000] bg-slate-900/40 backdrop-blur-[2px] flex items-center justify-center">
+                            <div className="bg-slate-900/90 p-4 rounded-xl border border-white/10 flex items-center gap-3 shadow-2xl">
+                                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary-500"></div>
+                                <span className="text-white font-medium">Fetching history data...</span>
+                            </div>
+                        </div>
+                    )}
+
                     {vehicles.length > 0 ? (
                         <MapContainer
                             center={mapCenter}
@@ -261,11 +428,44 @@ const MapView = () => {
                             style={{ height: '100%', width: '100%' }}
                             className="z-0"
                         >
-                            <ChangeView center={mapCenter} zoom={zoom} />
+                            <ChangeView
+                                center={mapCenter}
+                                zoom={zoom}
+                                animate={!replaying}
+                                following={following}
+                                replaying={replaying}
+                            />
+                            <MapEvents setZoom={setZoom} setFollowing={setFollowing} />
                             <TileLayer
                                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                             />
+
+                            {/* Render Route Polyline in History Mode */}
+                            {historyMode && historyData.length > 1 && (
+                                <>
+                                    <Polyline
+                                        positions={historyData.map(d => [d.latitude, d.longitude])}
+                                        pathOptions={{ color: '#3b82f6', weight: 4, opacity: 0.7, dashArray: '10, 10' }}
+                                    />
+                                    {/* Replay Marker */}
+                                    {historyData[replayIndex] && (
+                                        <Marker
+                                            position={[historyData[replayIndex].latitude, historyData[replayIndex].longitude]}
+                                            icon={createCustomIcon('active')}
+                                            zIndexOffset={1000}
+                                        >
+                                            <Popup>
+                                                <div className="text-xs">
+                                                    <b>Time:</b> {new Date(historyData[replayIndex].created_at).toLocaleString()}<br />
+                                                    <b>Lat:</b> {historyData[replayIndex].latitude.toFixed(5)}<br />
+                                                    <b>Lng:</b> {historyData[replayIndex].longitude.toFixed(5)}
+                                                </div>
+                                            </Popup>
+                                        </Marker>
+                                    )}
+                                </>
+                            )}
 
                             {/* Render Geofences with safety check */}
                             {geofences.filter(gf => gf.latitude && gf.longitude).map(gf => (
@@ -283,7 +483,7 @@ const MapView = () => {
                                 />
                             ))}
 
-                            {vehicles.map((vehicle) => (
+                            {!historyMode && vehicles.map((vehicle) => (
                                 <Marker
                                     key={vehicle.id}
                                     position={[
@@ -317,10 +517,59 @@ const MapView = () => {
                         </MapContainer>
                     ) : (
                         <div className="flex items-center justify-center h-full bg-slate-800">
-                            <div className="text-center">
-                                <MapPinIcon className="w-16 h-16 text-slate-600 mx-auto mb-4" />
-                                <p className="text-slate-400 text-lg">No location data available</p>
-                                <p className="text-slate-500 text-sm">Vehicles will appear here once they report their location</p>
+                            {/* No vehicles display */}
+                        </div>
+                    )}
+
+                    {/* Replay Controls Overlay */}
+                    {historyMode && historyData.length > 0 && (
+                        <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 z-[1000] bg-slate-900/90 backdrop-blur-md p-4 rounded-2xl border border-white/10 shadow-2xl flex items-center gap-6 w-[500px]">
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => setReplaying(!replaying)}
+                                    className="p-3 bg-primary-500 hover:bg-primary-600 text-white rounded-xl shadow-lg transition-all"
+                                >
+                                    {replaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
+                                </button>
+                                <button
+                                    onClick={() => { setReplaying(false); setReplayIndex(0); }}
+                                    className="p-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl transition-all"
+                                >
+                                    <Square className="w-5 h-5" />
+                                </button>
+                            </div>
+
+                            <div className="flex-1 space-y-2">
+                                <div className="flex justify-between text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                                    <span>Progress</span>
+                                    <span>{replayIndex + 1} / {historyData.length} Points</span>
+                                </div>
+                                <input
+                                    type="range"
+                                    className="w-full accent-primary-500 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer"
+                                    min="0"
+                                    max={historyData.length - 1}
+                                    value={replayIndex}
+                                    onChange={(e) => { setReplaying(false); setReplayIndex(parseInt(e.target.value)); }}
+                                />
+                                <div className="text-[10px] text-slate-500 font-mono flex items-center gap-1">
+                                    <Clock className="w-3 h-3" />
+                                    {new Date(historyData[replayIndex].created_at).toLocaleString()}
+                                </div>
+                            </div>
+
+                            <div className="border-l border-white/10 pl-4 space-y-1">
+                                <label className="text-[10px] text-slate-500 uppercase font-bold block">Speed</label>
+                                <select
+                                    className="bg-slate-800 text-white text-xs rounded border-none px-2 py-1 focus:ring-1 focus:ring-primary-500"
+                                    value={playbackSpeed}
+                                    onChange={(e) => setPlaybackSpeed(parseInt(e.target.value))}
+                                >
+                                    <option value="1000">1x</option>
+                                    <option value="500">2x</option>
+                                    <option value="200">5x</option>
+                                    <option value="100">10x</option>
+                                </select>
                             </div>
                         </div>
                     )}

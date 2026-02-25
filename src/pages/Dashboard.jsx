@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Activity, Car, MapPin, TrendingUp } from 'lucide-react';
-import { vehicleAPI, locationAPI } from '../services/api';
+import { Activity, Car, MapPin, TrendingUp, Shield, History, Settings, ExternalLink } from 'lucide-react';
+import { vehicleAPI, locationAPI, geofenceAPI } from '../services/api';
 import StatCard from '../components/StatCard';
 import VehicleCard from '../components/VehicleCard';
 import { useNavigate } from 'react-router-dom';
@@ -13,6 +13,7 @@ const Dashboard = () => {
         active: 0,
         idle: 0,
         inactive: 0,
+        geofences: 0
     });
     const navigate = useNavigate();
 
@@ -71,11 +72,19 @@ const Dashboard = () => {
             const idle = vehiclesWithStatus.filter(v => v.status === 'idle').length;
             const inactive = vehiclesWithStatus.filter(v => v.status === 'inactive').length;
 
+            // Fetch Geofences count
+            let geofenceCount = 0;
+            try {
+                const gfRes = await geofenceAPI.getAll();
+                geofenceCount = Array.isArray(gfRes.data) ? gfRes.data.length : 0;
+            } catch (e) { console.error("Error fetching gf count", e); }
+
             setStats({
                 total: vehiclesWithStatus.length,
                 active,
                 idle,
                 inactive,
+                geofences: geofenceCount
             });
 
             setLoading(false);
@@ -129,11 +138,56 @@ const Dashboard = () => {
                     color="warning"
                 />
                 <StatCard
-                    icon={MapPin}
-                    label="Inactive"
-                    value={stats.inactive}
-                    color="danger"
+                    icon={Shield}
+                    label="Geofences"
+                    value={stats.geofences}
+                    color="primary"
                 />
+            </div>
+
+            {/* Quick Actions */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+                <div
+                    onClick={() => navigate('/map')}
+                    className="card p-6 border border-white/5 hover:border-primary-500/50 cursor-pointer group transition-all"
+                >
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="p-3 bg-primary-500/10 rounded-xl group-hover:bg-primary-500/20 transition-colors">
+                            <MapPin className="w-6 h-6 text-primary-400" />
+                        </div>
+                        <ExternalLink className="w-4 h-4 text-slate-600 group-hover:text-primary-400" />
+                    </div>
+                    <h3 className="text-lg font-bold text-white mb-1">Live Tracking</h3>
+                    <p className="text-sm text-slate-400">Monitor vehicle positions and route history</p>
+                </div>
+
+                <div
+                    onClick={() => navigate('/geofences')}
+                    className="card p-6 border border-white/5 hover:border-emerald-500/50 cursor-pointer group transition-all"
+                >
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="p-3 bg-emerald-500/10 rounded-xl group-hover:bg-emerald-500/20 transition-colors">
+                            <Shield className="w-6 h-6 text-emerald-400" />
+                        </div>
+                        <ExternalLink className="w-4 h-4 text-slate-600 group-hover:text-emerald-400" />
+                    </div>
+                    <h3 className="text-lg font-bold text-white mb-1">Geofencing</h3>
+                    <p className="text-sm text-slate-400">Manage virtual boundaries and safety zones</p>
+                </div>
+
+                <div
+                    onClick={() => navigate('/logs')}
+                    className="card p-6 border border-white/5 hover:border-amber-500/50 cursor-pointer group transition-all"
+                >
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="p-3 bg-amber-500/10 rounded-xl group-hover:bg-amber-500/20 transition-colors">
+                            <History className="w-6 h-6 text-amber-400" />
+                        </div>
+                        <ExternalLink className="w-4 h-4 text-slate-600 group-hover:text-amber-400" />
+                    </div>
+                    <h3 className="text-lg font-bold text-white mb-1">Activity Logs</h3>
+                    <p className="text-sm text-slate-400">Review system events and security alerts</p>
+                </div>
             </div>
 
             {/* Recent Vehicles */}

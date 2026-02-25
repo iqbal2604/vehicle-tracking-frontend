@@ -45,7 +45,14 @@ export const vehicleAPI = {
 export const locationAPI = {
     // Backend doesn't have getAll locations. We must fetch per vehicle.
     getLast: (vehicleId) => api.get(`/gps/last/${vehicleId}`),
-    getHistory: (vehicleId) => api.get(`/gps/history/${vehicleId}`),
+    getHistory: (vehicleId, start, end) => {
+        let url = `/gps/history/${vehicleId}`;
+        const params = new URLSearchParams();
+        if (start) params.append('start', start);
+        if (end) params.append('end', end);
+        if (params.toString()) url += `?${params.toString()}`;
+        return api.get(url);
+    },
     create: (data) => api.post(`/gps`, data),
 };
 
